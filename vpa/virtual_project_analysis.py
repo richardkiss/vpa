@@ -21,14 +21,19 @@ class PythonFile:
     annotation: Optional[str]
 
     @classmethod
-    def parse(cls, file_path: Path) -> PythonFile:
+    def parse(cls, file_path: Path, annotation_override: Dict[Path, str]) -> PythonFile:
         file_string = file_path.read_text(encoding="utf-8", errors="ignore")
-        result = re.search(r"^# Package: (.+)$", file_string, re.MULTILINE)
-        annotation = result.group(1).strip() if result else None
+        annotation = annotation_override.get(file_path)
+        if annotation is None:
+            result = re.search(r"^# Package: (.+)$", file_string, re.MULTILINE)
+            if result:
+                annotation = result.group(1).strip()
         return cls(file_path, annotation)
 
 
-def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[Path]]:
+def build_dependency_graph(
+    dir_params: DirectoryParameters, annotation_override: Dict[Path, str]
+) -> Dict[Path, List[Path]]:
     dependency_graph: Dict[Path, List[Path]] = {}
     for python_file in dir_params.gather_non_empty_python_files():
         dependency_graph[python_file.path] = []
@@ -72,17 +77,20 @@ def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[P
 
 def build_virtual_dependency_graph(
     dir_params: DirectoryParameters,
+    annotation_override: Dict[Path, str],
 ) -> Dict[str, List[str]]:
-    graph = build_dependency_graph(dir_params)
+    graph = build_dependency_graph(dir_params, annotation_override)
     virtual_graph: Dict[str, List[str]] = {}
     for file, imports in graph.items():
-        root_file = PythonFile.parse(Path(file))
+        root_file = PythonFile.parse(Path(file), annotation_override)
         if root_file.annotation is None:
             continue
         root = root_file.annotation
         virtual_graph.setdefault(root, [])
 
-        dependency_files = [PythonFile.parse(Path(imp)) for imp in imports]
+        dependency_files = [
+            PythonFile.parse(Path(imp), annotation_override) for imp in imports
+        ]
         dependencies = [
             f.annotation for f in dependency_files if f.annotation is not None
         ]
@@ -118,6 +126,7 @@ def find_cycles(
     graph: Dict[Path, List[Path]],
     excluded_paths: List[Path],
     ignore_cycles_in: List[str],
+    annotation_override: Dict[Path, str],
 ) -> List[str]:
     # Define a nested function for recursive dependency searching.
     # top_level_package: The name of the package at the top of the dependency tree.
@@ -137,7 +146,7 @@ def find_cycles(
         # Mark this dependency as seen.
         already_seen.append(dependency)
         # Parse the dependency file to obtain its annotations.
-        python_file = PythonFile.parse(dependency)
+        python_file = PythonFile.parse(dependency, annotation_override)
 
         # If there are no annotations, return an empty list as there's nothing to process.
         if python_file.annotation is None:
@@ -168,18 +177,13 @@ def find_cycles(
     # Iterate over each package (parent) in the graph.
     for parent in graph:
         # Parse the parent package file.
-        python_file = PythonFile.parse(parent)
+        python_file = PythonFile.parse(parent, annotation_override)
         # Skip this package if it has no annotation or should be ignored in cycle detection.
-        if (
-            python_file.annotation is None
-            or python_file.annotation in ignore_cycles_in
-        ):
+        if python_file.annotation is None or python_file.annotation in ignore_cycles_in:
             continue
         # Extend the path_accumulator with results from the recursive search starting from this parent.
         path_accumulator.extend(
-            recursive_dependency_search(
-                python_file.annotation, False, parent, []
-            )
+            recursive_dependency_search(python_file.annotation, False, parent, [])
         )
 
     # Format and return the accumulated paths as strings showing the cycles.
@@ -209,7 +213,9 @@ class DirectoryParameters:
     dir_path: Path
     excluded_paths: List[Path] = field(default_factory=list)
 
-    def gather_non_empty_python_files(self) -> List[PythonFile]:
+    def gather_non_empty_python_files(
+        self, annotation_override: Dict[Path, str] = {}
+    ) -> List[PythonFile]:
         """
         Gathers non-empty Python files in the specified directory while
         ignoring files and directories in the excluded paths.
@@ -232,7 +238,9 @@ class DirectoryParameters:
                 if file_path.suffix == ".py" and file_path not in self.excluded_paths:
                     # Check if the file is non-empty
                     if os.path.getsize(file_path) > 0:
-                        python_files.append(PythonFile.parse(file_path))
+                        python_files.append(
+                            PythonFile.parse(file_path, annotation_override)
+                        )
 
         return python_files
 
@@ -241,6 +249,7 @@ class DirectoryParameters:
 class Config:
     directory_parameters: DirectoryParameters
     ignore_cycles_in: List[str]
+    annotation_override: Dict[Path, str]
 
 
 def config(func: Callable[..., None]) -> Callable[..., None]:
@@ -291,6 +300,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
         config = Config(
             directory_parameters=dir_params,
             ignore_cycles_in=[*kwargs.pop("ignore_cycles_in", []), *ignore_cycles_in],
+            annotation_override=PATH_TO_PACKAGE,
         )
 
         # Calling the wrapped function with the Config object and other arguments
@@ -321,7 +331,9 @@ def find_missing_annotations(config: Config) -> None:
 )
 @config
 def print_dependency_graph(config: Config) -> None:
-    print_graph(build_dependency_graph(config.directory_parameters))
+    print_graph(
+        build_dependency_graph(config.directory_parameters, config.annotation_override)
+    )
 
 
 @click.command(
@@ -330,7 +342,11 @@ def print_dependency_graph(config: Config) -> None:
 )
 @config
 def print_virtual_dependency_graph(config: Config) -> None:
-    print_graph(build_virtual_dependency_graph(config.directory_parameters))
+    print_graph(
+        build_virtual_dependency_graph(
+            config.directory_parameters, config.annotation_override
+        )
+    )
 
 
 @click.command(
@@ -347,9 +363,10 @@ def print_virtual_dependency_graph(config: Config) -> None:
 def print_cycles(config: Config) -> None:
     flag = False
     for cycle in find_cycles(
-        build_dependency_graph(config.directory_parameters),
+        build_dependency_graph(config.directory_parameters, config.annotation_override),
         config.directory_parameters.excluded_paths,
         config.ignore_cycles_in,
+        config.annotation_override,
     ):
         print(cycle)
         flag = True
