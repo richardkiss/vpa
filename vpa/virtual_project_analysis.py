@@ -21,11 +21,11 @@ ANNOTATION_MAP: dict[Path, Annotation] = {
 
 
 @dataclass(frozen=True)
-class ChiaFile:
+class PythonFile:
     path: Path
 
     @classmethod
-    def parse(cls, file_path: Path) -> ChiaFile:
+    def parse(cls, file_path: Path) -> PythonFile:
         with open(file_path, encoding="utf-8", errors="ignore") as f:
             file_string = f.read()
             ANNOTATION_MAP[file_path] = (
@@ -42,11 +42,11 @@ class ChiaFile:
 
 def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[Path]]:
     dependency_graph: Dict[Path, List[Path]] = {}
-    for chia_file in dir_params.gather_non_empty_python_files():
-        dependency_graph[chia_file.path] = []
-        with open(chia_file.path, encoding="utf-8", errors="ignore") as f:
+    for python_file in dir_params.gather_non_empty_python_files():
+        dependency_graph[python_file.path] = []
+        with open(python_file.path, encoding="utf-8", errors="ignore") as f:
             filestring = f.read()
-            tree = ast.parse(filestring, filename=chia_file.path)
+            tree = ast.parse(filestring, filename=python_file.path)
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.ImportFrom):
                     if node.module is not None and node.module.startswith(
@@ -65,7 +65,7 @@ def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[P
                         ]
                         for path_to_search in paths_to_search:
                             if os.path.exists(path_to_search):
-                                dependency_graph[chia_file.path].append(
+                                dependency_graph[python_file.path].append(
                                     Path(path_to_search)
                                 )
                 elif isinstance(node, ast.Import):
@@ -76,7 +76,7 @@ def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[P
                                 alias.name.replace(".", "/") + ".py",
                             )
                             if os.path.exists(imported_path):
-                                dependency_graph[chia_file.path].append(
+                                dependency_graph[python_file.path].append(
                                     Path(imported_path)
                                 )
     return dependency_graph
@@ -88,13 +88,13 @@ def build_virtual_dependency_graph(
     graph = build_dependency_graph(dir_params)
     virtual_graph: Dict[str, List[str]] = {}
     for file, imports in graph.items():
-        root_file = ChiaFile.parse(Path(file))
+        root_file = PythonFile.parse(Path(file))
         if root_file.annotations is None:
             continue
         root = root_file.annotations.package
         virtual_graph.setdefault(root, [])
 
-        dependency_files = [ChiaFile.parse(Path(imp)) for imp in imports]
+        dependency_files = [PythonFile.parse(Path(imp)) for imp in imports]
         dependencies = [
             f.annotations.package for f in dependency_files if f.annotations is not None
         ]
@@ -149,23 +149,23 @@ def find_cycles(
         # Mark this dependency as seen.
         already_seen.append(dependency)
         # Parse the dependency file to obtain its annotations.
-        chia_file = ChiaFile.parse(dependency)
+        python_file = PythonFile.parse(dependency)
 
         # If there are no annotations, return an empty list as there's nothing to process.
-        if chia_file.annotations is None:
+        if python_file.annotations is None:
             return []
         # If the current dependency package matches the top-level package and we've left the top-level,
         # return a list containing this dependency.
-        elif chia_file.annotations.package == top_level_package and left_top_level:
-            return [[(chia_file.annotations.package, dependency)]]
+        elif python_file.annotations.package == top_level_package and left_top_level:
+            return [[(python_file.annotations.package, dependency)]]
         else:
             # Update the left_top_level flag if we have moved to a different package.
             left_top_level = (
-                left_top_level or chia_file.annotations.package != top_level_package
+                left_top_level or python_file.annotations.package != top_level_package
             )
             # Recursively search through all dependencies of the current dependency and accumulate the results.
             return [
-                [(chia_file.annotations.package, dependency), *stack]
+                [(python_file.annotations.package, dependency), *stack]
                 for stack in [
                     _stack
                     for dep in graph[dependency]
@@ -180,17 +180,17 @@ def find_cycles(
     # Iterate over each package (parent) in the graph.
     for parent in graph:
         # Parse the parent package file.
-        chia_file = ChiaFile.parse(parent)
+        python_file = PythonFile.parse(parent)
         # Skip this package if it has no annotations or should be ignored in cycle detection.
         if (
-            chia_file.annotations is None
-            or chia_file.annotations.package in ignore_cycles_in
+            python_file.annotations is None
+            or python_file.annotations.package in ignore_cycles_in
         ):
             continue
         # Extend the path_accumulator with results from the recursive search starting from this parent.
         path_accumulator.extend(
             recursive_dependency_search(
-                chia_file.annotations.package, False, parent, []
+                python_file.annotations.package, False, parent, []
             )
         )
 
@@ -221,7 +221,7 @@ class DirectoryParameters:
     dir_path: Path
     excluded_paths: List[Path] = field(default_factory=list)
 
-    def gather_non_empty_python_files(self) -> List[ChiaFile]:
+    def gather_non_empty_python_files(self) -> List[PythonFile]:
         """
         Gathers non-empty Python files in the specified directory while
         ignoring files and directories in the excluded paths.
@@ -244,7 +244,7 @@ class DirectoryParameters:
                 if file_path.suffix == ".py" and file_path not in self.excluded_paths:
                     # Check if the file is non-empty
                     if os.path.getsize(file_path) > 0:
-                        python_files.append(ChiaFile.parse(file_path))
+                        python_files.append(PythonFile.parse(file_path))
 
         return python_files
 
@@ -313,7 +313,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
 
 @click.command(
     "find_missing_annotations",
-    short_help="Search a directory for chia files without annotations",
+    short_help="Search a directory for python files without annotations",
 )
 @config
 def find_missing_annotations(config: Config) -> None:
