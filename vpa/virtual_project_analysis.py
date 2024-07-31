@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import os
 import sys
 from dataclasses import dataclass, field
@@ -11,33 +12,20 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import click
 import yaml
 
-from .annotation import Annotation
 from .package_annotation_map import PATH_TO_PACKAGE
-
-
-ANNOTATION_MAP: dict[Path, Annotation] = {
-    Path(k): Annotation(v) for k, v in PATH_TO_PACKAGE.items()
-}
 
 
 @dataclass(frozen=True)
 class PythonFile:
     path: Path
+    annotation: Optional[str]
 
     @classmethod
     def parse(cls, file_path: Path) -> PythonFile:
-        with open(file_path, encoding="utf-8", errors="ignore") as f:
-            file_string = f.read()
-            ANNOTATION_MAP[file_path] = (
-                Annotation.parse(file_string)
-                if Annotation.is_annotated(file_string)
-                else None
-            )
-            return cls(file_path)
-
-    @property
-    def annotations(self) -> Optional[Annotation]:
-        return ANNOTATION_MAP.get(self.path)
+        file_string = file_path.read_text(encoding="utf-8", errors="ignore")
+        result = re.search(r"^# Package: (.+)$", file_string, re.MULTILINE)
+        annotation = result.group(1).strip() if result else None
+        return cls(file_path, annotation)
 
 
 def build_dependency_graph(dir_params: DirectoryParameters) -> Dict[Path, List[Path]]:
@@ -89,14 +77,14 @@ def build_virtual_dependency_graph(
     virtual_graph: Dict[str, List[str]] = {}
     for file, imports in graph.items():
         root_file = PythonFile.parse(Path(file))
-        if root_file.annotations is None:
+        if root_file.annotation is None:
             continue
-        root = root_file.annotations.package
+        root = root_file.annotation
         virtual_graph.setdefault(root, [])
 
         dependency_files = [PythonFile.parse(Path(imp)) for imp in imports]
         dependencies = [
-            f.annotations.package for f in dependency_files if f.annotations is not None
+            f.annotation for f in dependency_files if f.annotation is not None
         ]
 
         virtual_graph[root].extend(dependencies)
@@ -152,20 +140,20 @@ def find_cycles(
         python_file = PythonFile.parse(dependency)
 
         # If there are no annotations, return an empty list as there's nothing to process.
-        if python_file.annotations is None:
+        if python_file.annotation is None:
             return []
         # If the current dependency package matches the top-level package and we've left the top-level,
         # return a list containing this dependency.
-        elif python_file.annotations.package == top_level_package and left_top_level:
-            return [[(python_file.annotations.package, dependency)]]
+        elif python_file.annotation == top_level_package and left_top_level:
+            return [[(python_file.annotation, dependency)]]
         else:
             # Update the left_top_level flag if we have moved to a different package.
             left_top_level = (
-                left_top_level or python_file.annotations.package != top_level_package
+                left_top_level or python_file.annotation != top_level_package
             )
             # Recursively search through all dependencies of the current dependency and accumulate the results.
             return [
-                [(python_file.annotations.package, dependency), *stack]
+                [(python_file.annotation, dependency), *stack]
                 for stack in [
                     _stack
                     for dep in graph[dependency]
@@ -181,16 +169,16 @@ def find_cycles(
     for parent in graph:
         # Parse the parent package file.
         python_file = PythonFile.parse(parent)
-        # Skip this package if it has no annotations or should be ignored in cycle detection.
+        # Skip this package if it has no annotation or should be ignored in cycle detection.
         if (
-            python_file.annotations is None
-            or python_file.annotations.package in ignore_cycles_in
+            python_file.annotation is None
+            or python_file.annotation in ignore_cycles_in
         ):
             continue
         # Extend the path_accumulator with results from the recursive search starting from this parent.
         path_accumulator.extend(
             recursive_dependency_search(
-                python_file.annotations.package, False, parent, []
+                python_file.annotation, False, parent, []
             )
         )
 
@@ -319,7 +307,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
 def find_missing_annotations(config: Config) -> None:
     flag = False
     for file in config.directory_parameters.gather_non_empty_python_files():
-        if file.annotations is None:
+        if file.annotation is None:
             print(file.path)
             flag = True
 
