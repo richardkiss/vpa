@@ -3,16 +3,30 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Iterator, List
 
 
-from .python_file import PythonFile
+from vpa.python_file import PythonFile
 
 
 @dataclass(frozen=True)
 class DirectoryParameters:
     dir_path: Path
     excluded_paths: List[Path] = field(default_factory=list)
+
+    def python_files(self) -> Iterator[Path]:
+        """
+        Gathers non-empty Python files in the specified directory while
+        ignoring files and directories in the excluded paths.
+        """
+        exclude = set(self.dir_path / p for p in self.excluded_paths)
+        for root, dirs, files in self.dir_path.walk(top_down=True):
+            # Modify dirs in-place to remove excluded directories from search
+            dirs[:] = [d for d in dirs if root / d not in exclude]
+            for file in files:
+                file_path = root / file
+                if file_path.suffix == ".py" and file_path not in exclude:
+                    yield file_path
 
     def gather_non_empty_python_files(
         self, annotation_override: Dict[Path, str] = {}
@@ -24,24 +38,8 @@ class DirectoryParameters:
         Returns:
             A list of paths to non-empty Python files.
         """
-        python_files = []
-        for root, dirs, files in os.walk(self.dir_path, topdown=True):
-            # Modify dirs in-place to remove excluded directories from search
-            dirs[:] = [
-                d
-                for d in dirs
-                if Path(os.path.join(root, d)) not in self.excluded_paths
-            ]
-
-            for file in files:
-                file_path = Path(os.path.join(root, file))
-                # Check if the file is a Python file and not in the excluded paths
-                if file_path.suffix == ".py" and file_path not in self.excluded_paths:
-                    # Check if the file is non-empty
-                    if os.path.getsize(file_path) > 0:
-                        python_files.append(
-                            PythonFile.parse(file_path, annotation_override)
-                        )
-
-        return python_files
-
+        return list(
+            PythonFile.parse(file_path, annotation_override)
+            for file_path in self.python_files()
+            if file_path.stat().st_size > 0
+        )
