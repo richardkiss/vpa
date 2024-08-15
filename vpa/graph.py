@@ -29,13 +29,16 @@ def edges_to_adjacency_list(
 
 
 def remap_edges[S, T](
-    edges: List[Tuple[S, S]], mapping: Dict[S, T]
+    edges: List[Tuple[S, S]], mapping: Dict[S, T], drop_missing=True,
 ) -> Tuple[List[Tuple[T, T]], Dict[Tuple[T, T], List[Tuple[S, S]]]]:
     s: Set[Tuple[T, T]] = set()
     reverse_lookup: Dict[Tuple[T, T], List[Tuple[S, S]]] = {}
     for src, dst in edges:
         s0 = mapping.get(src)
         d0 = mapping.get(dst)
+        if not drop_missing:
+            s0 = s0 if s0 is not None else src
+            d0 = d0 if d0 is not None else dst
         if s0 is not None and d0 is not None and s0 != d0:
             s.add((s0, d0))
             reverse_lookup.setdefault((s0, d0), []).append((src, dst))

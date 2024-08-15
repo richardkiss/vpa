@@ -27,7 +27,7 @@ from .imports import mods_imported_for_python_file, path_to_mod
 @dataclass(frozen=True)
 class EdgeInfo:
     edges: List[Tuple[str, str]]
-    mod_to_path: Dict[str, Path]
+    mod_to_path: Dict[str, str]
     annotations: Dict[str, str]
 
 
@@ -41,14 +41,14 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
     edges: List[Tuple[str, str]] = []
     annotations: Dict[str, str] = {}
     all_mods: Set[str] = set()
-    mod_to_path: Dict[str, Path] = {}
+    mod_to_path: Dict[str, str] = {}
 
     for path in [
         _.path for _ in config.directory_parameters.gather_non_empty_python_files()
     ]:
         src_mod = path_to_mod(path, base_dir)
         src_path = path.relative_to(base_dir)
-        mod_to_path[src_mod] = src_path
+        mod_to_path[src_mod] = str(src_path)
         all_mods.add(src_mod)
         filestring = path.read_text()
         for imp_mod in mods_imported_for_python_file(filestring, base_dir, path):
@@ -57,7 +57,7 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
         if result:
             annotations[src_mod] = result.group(1).strip()
         else:
-            r = config.annotation_override.get(path)
+            r = config.module_maps.get(path)
             if r:
                 annotations[src_mod] = r
     edge_info = EdgeInfo(edges=edges, mod_to_path=mod_to_path, annotations=annotations)
@@ -108,6 +108,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
     def inner(config_path: Optional[str], *args: Any, **kwargs: Any) -> None:
         exclude_paths = []
         ignore_cycles_in = []
+        module_maps = {}
         if config_path is not None:
             # Reading from the YAML configuration file
             with open(config_path) as file:
@@ -116,6 +117,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
             # Extracting required configuration values
             exclude_paths = [Path(p) for p in config_data.get("exclude_paths", [])]
             ignore_cycles_in = config_data.get("ignore_cycles_in", [])
+            module_maps = config_data.get("module_maps", {})
 
         # Instantiate DirectoryParameters with the provided options
         dir_params = DirectoryParameters(
@@ -130,7 +132,8 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
         config = Config(
             directory_parameters=dir_params,
             ignore_cycles_in=[*kwargs.pop("ignore_cycles_in", []), *ignore_cycles_in],
-            annotation_override={},
+            module_maps=module_maps,
+            # annotation_override={},
         )
 
         # Calling the wrapped function with the Config object and other arguments
@@ -139,19 +142,36 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
     return inner
 
 
+def reverse_module_maps(module_maps: Dict[str, List[str]]) -> Dict[str, str]:
+    d = {}
+    for k, vs in module_maps.items():
+        for v in vs:
+            d[v] = k
+    return d
+
+
 @click.command(
     "print_leafs",
     short_help="Print dependencies that have no further dependencies",
 )
+@click.option("--ignore-dep", multiple=True, type=str, help="Ignore a dependency")
 @config
-def print_leafs(config: Config) -> None:
+def print_leafs(config: Config, ignore_dep: List[str]) -> None:
     edge_info = edge_info_for_config(config)
-    reduced_edges, reverse_lookup = remap_edges(edge_info.edges, edge_info.mod_to_path)
-    adj_list = edges_to_adjacency_list(reduced_edges)
+    rev_mod_map = reverse_module_maps(config.module_maps)
+    reduced_edges_1, reverse_lookup_1 = remap_edges(
+        edge_info.edges, edge_info.mod_to_path
+    )
+    reduced_edges_2, reverse_lookup_2 = remap_edges(reduced_edges_1, rev_mod_map, drop_missing=False)
+
+    adj_list = edges_to_adjacency_list(reduced_edges_2)
+    deps_to_ignore = set(ignore_dep)
     leaf_set = set()
     for ks in adj_list.values():
         for k in ks:
-            if not adj_list.get(k, []):
+            imports = adj_list.get(k, [])
+            import_set = set(imports)
+            if not import_set.difference(deps_to_ignore):
                 leaf_set.add(k)
     leafs = sorted(str(_) for _ in leaf_set)
     print(json.dumps(leafs, indent=4))

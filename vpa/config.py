@@ -10,4 +10,4 @@ from .directory_parameters import DirectoryParameters
 class Config:
     directory_parameters: DirectoryParameters
     ignore_cycles_in: List[str]
-    annotation_override: Dict[Path, str]
+    module_maps: Dict[str, str]
