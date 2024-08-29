@@ -1,25 +1,24 @@
 from __future__ import annotations
 
-import ast
-import os
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, TypeVar
+from typing import Dict, List, Set, Tuple
 
-S = TypeVar("S")
-T = TypeVar("T")
+from vpa.edge import Edge
 
 
 EdgePath = None | Tuple[str, "EdgePath"]
 
 
 def edges_to_adjacency_list(
-    edges: List[Tuple[str, str]], include_empty=False
+    edges: List[Edge], include_empty=False, nodes=[]
 ) -> Dict[str, List[str]]:
     """
     Given a list of edges, return an adjacency list as a `dict` with keys the source
     vertex and values a list of destination vertices.
     """
     adj_list_set: Dict[str, Set[str]] = {}
+    for node in nodes:
+        adj_list_set.setdefault(node, set())
     for src, dst in edges:
         if include_empty:
             adj_list_set.setdefault(dst, set())
@@ -28,11 +27,13 @@ def edges_to_adjacency_list(
     return adj_list
 
 
-def remap_edges[S, T](
-    edges: List[Tuple[S, S]], mapping: Dict[S, T], drop_missing=True,
-) -> Tuple[List[Tuple[T, T]], Dict[Tuple[T, T], List[Tuple[S, S]]]]:
-    s: Set[Tuple[T, T]] = set()
-    reverse_lookup: Dict[Tuple[T, T], List[Tuple[S, S]]] = {}
+def remap_edges(
+    edges: List[Edge],
+    mapping: Dict[str, str],
+    drop_missing=True,
+) -> Tuple[List[Edge], Dict[Edge, List[Edge]]]:
+    s: Set[Edge] = set()
+    reverse_lookup: Dict[Edge, List[Edge]] = {}
     for src, dst in edges:
         s0 = mapping.get(src)
         d0 = mapping.get(dst)
@@ -46,7 +47,7 @@ def remap_edges[S, T](
 
 
 def generate_transitive_path_lookup(
-    edges: List[Tuple[str, str]],
+    edges: List[Edge],
 ) -> Dict[str, Dict[str, List[EdgePath]]]:
     """
     Given a list of edges, return a dictionary mapping source nodes to destination nodes to paths.

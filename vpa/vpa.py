@@ -1,91 +1,33 @@
 from __future__ import annotations
 
-import ast
 import json
-import re
-import os
-import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 from pprint import pprint
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import click
 import yaml
 
 from .config import Config
+from .edge_info import (
+    edge_info_for_config,
+    generate_forward_lookup_from_reverse,
+)
 from .graph import (
     generate_transitive_path_lookup,
     edge_path_as_node_list,
     edges_to_adjacency_list,
     remap_edges,
 )
-from .imports import mods_imported_for_python_file, path_to_mod
-
-
-@dataclass(frozen=True)
-class EdgeInfo:
-    edges: List[Tuple[str, str]]
-    mod_to_path: Dict[str, str]
-    annotations: Dict[str, str]
-
-
-def python_files(base_dir: Path, excluded_paths: List[Path]) -> Iterator[Path]:
-    """
-    Gathers non-empty Python files in the specified directory.
-    """
-    exclude = set(base_dir / p for p in excluded_paths)
-    for root, dirs, files in base_dir.walk(top_down=True):
-        dirs[:] = [d for d in dirs if root / d not in exclude]
-        for file in files:
-            path = root / file
-            if path.suffix != ".py":
-                continue
-            if path in exclude:
-                continue
-            if path.stat().st_size == 0:
-                continue
-            yield path
-
-
-def edge_info_for_config(config: Config) -> EdgeInfo:
-    """
-    Given a configuration, return the edges, mod to path mapping, and annotations.
-    The edges are the modules corresponding to the paths.
-    """
-
-    base_dir = config.dir_path
-    edges: List[Tuple[str, str]] = []
-    annotations: Dict[str, str] = {}
-    all_mods: Set[str] = set()
-    mod_to_path: Dict[str, str] = {}
-
-    for path in python_files(base_dir, config.excluded_paths):
-        src_mod = path_to_mod(path, base_dir)
-        src_path = path.relative_to(base_dir)
-        mod_to_path[src_mod] = str(src_path)
-        all_mods.add(src_mod)
-        filestring = path.read_text()
-        for imp_mod in mods_imported_for_python_file(filestring, base_dir, path):
-            edges.append((src_mod, imp_mod))
-        result = re.search(r"^# Package: (.+)$", filestring, re.MULTILINE)
-        if result:
-            annotations[src_mod] = result.group(1).strip()
-        else:
-            r = config.module_maps.get(path)
-            if r:
-                annotations[src_mod] = r
-    edge_info = EdgeInfo(edges=edges, mod_to_path=mod_to_path, annotations=annotations)
-    return edge_info
 
 
 def generate_dot(config: Config) -> str:
     edge_info = edge_info_for_config(config)
-    src_mapping = {s: s for s, d in edge_info.edges}
-    reduced_edges, reverse_lookup = remap_edges(edge_info.edges, edge_info.mod_to_path)
+    src_edges = {s for s, d in edge_info.path_edges}
     s = "digraph G {\n"
-    for src, dst in reduced_edges:
-        s += f'  "{src}" -> "{dst}";\n'
+    for src, dst in edge_info.path_edges:
+        if dst in src_edges:
+            s += f'  "{src}" -> "{dst}";\n'
     s += "}\n"
     return s
 
@@ -121,18 +63,18 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
         help="Path to the YAML configuration file.",
     )
     def inner(config_path: Optional[str], *args: Any, **kwargs: Any) -> None:
-        excluded_paths = []
+        excluded_paths: List[Path] = []
         ignore_cycles_in = []
-        module_maps = {}
+        package_contents: Dict[str, List[str]] = {}
         if config_path is not None:
             # Reading from the YAML configuration file
             with open(config_path) as file:
                 config_data = yaml.safe_load(file)
 
             # Extracting required configuration values
-            exclude_paths = [Path(p) for p in config_data.get("exclude_paths", [])]
+            excluded_paths = [Path(p) for p in config_data.get("excluded_paths", [])]
             ignore_cycles_in = config_data.get("ignore_cycles_in", [])
-            module_maps = config_data.get("module_maps", {})
+            package_contents = config_data.get("package_contents", {})
 
         # Instantiating the Config object
         config = Config(
@@ -142,7 +84,7 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
                 *excluded_paths,
             ],
             ignore_cycles_in=[*kwargs.pop("ignore_cycles_in", []), *ignore_cycles_in],
-            module_maps=module_maps,
+            package_contents=package_contents,
             # annotation_override={},
         )
 
@@ -150,14 +92,6 @@ def config(func: Callable[..., None]) -> Callable[..., None]:
         return func(config, *args, **kwargs)
 
     return inner
-
-
-def reverse_module_maps(module_maps: Dict[str, List[str]]) -> Dict[str, str]:
-    d = {}
-    for k, vs in module_maps.items():
-        for v in vs:
-            d[v] = k
-    return d
 
 
 @click.command(
@@ -168,15 +102,12 @@ def reverse_module_maps(module_maps: Dict[str, List[str]]) -> Dict[str, str]:
 @config
 def print_leafs(config: Config, ignore_dep: List[str]) -> None:
     edge_info = edge_info_for_config(config)
-    rev_mod_map = reverse_module_maps(config.module_maps)
-    reduced_edges_1, reverse_lookup_1 = remap_edges(
-        edge_info.edges, edge_info.mod_to_path
-    )
-    reduced_edges_2, reverse_lookup_2 = remap_edges(
-        reduced_edges_1, rev_mod_map, drop_missing=False
+    rev_mod_map = generate_forward_lookup_from_reverse(config.package_contents)
+    reduced_edges, reverse_lookup = remap_edges(
+        edge_info.path_edges, rev_mod_map, drop_missing=False
     )
 
-    adj_list = edges_to_adjacency_list(reduced_edges_2)
+    adj_list = edges_to_adjacency_list(reduced_edges)
     deps_to_ignore = set(ignore_dep)
     leaf_set = set()
     for ks in adj_list.values():
@@ -190,18 +121,29 @@ def print_leafs(config: Config, ignore_dep: List[str]) -> None:
 
 
 @click.command(
+    "print_edges",
+    short_help="print edge info",
+)
+@config
+def print_edges(config: Config) -> None:
+    edge_info = edge_info_for_config(config)
+    for edge in edge_info.path_edges:
+        print(edge)
+
+
+@click.command(
     "print_missing_annotations",
-    short_help="Search a directory for python files without annotations",
+    short_help="Search a directory for python files without package annotations",
 )
 @config
 def print_missing_annotations(config: Config) -> None:
     edge_info = edge_info_for_config(config)
-    annotations = edge_info.annotations
+    path_to_package = edge_info.path_to_package
     mod_to_path = edge_info.mod_to_path
     missing_annotations = []
     for mod, path in mod_to_path.items():
-        if mod not in annotations:
-            missing_annotations.append(str(path))
+        if path not in path_to_package:
+            missing_annotations.append(path)
     print("\n".join(missing_annotations))
 
 
@@ -213,10 +155,8 @@ def print_missing_annotations(config: Config) -> None:
 def print_dependency_graph(config: Config) -> None:
     edge_info = edge_info_for_config(config)
     mod_to_path = edge_info.mod_to_path
-    edges = edge_info.edges
-    reduced_edges, reverse_lookup = remap_edges(edges, mod_to_path)
-    reduced_edges_str = [(str(src), str(dst)) for src, dst in reduced_edges]
-    dep_graph = edges_to_adjacency_list(reduced_edges_str)
+    edges = edge_info.mod_edges
+    dep_graph = edges_to_adjacency_list(edge_info.path_edges)
     print(json.dumps(dep_graph, indent=4))
 
 
@@ -227,7 +167,9 @@ def print_dependency_graph(config: Config) -> None:
 @config
 def print_virtual_dependency_graph(config: Config) -> None:
     edge_info = edge_info_for_config(config)
-    reduced_edges, reverse_lookup = remap_edges(edge_info.edges, edge_info.annotations)
+    reduced_edges, reverse_lookup = remap_edges(
+        edge_info.path_edges, edge_info.path_to_package
+    )
     adj_list = edges_to_adjacency_list(reduced_edges)
     print(json.dumps(adj_list, indent=4))
 
@@ -245,9 +187,8 @@ def print_virtual_dependency_graph(config: Config) -> None:
 @config
 def print_cycles(config: Config) -> None:
     edge_info = edge_info_for_config(config)
-    reduced_edges, reverse_lookup = remap_edges(edge_info.edges, edge_info.annotations)
-    adj_list = edges_to_adjacency_list(reduced_edges)
-    path_lookup = generate_transitive_path_lookup(reduced_edges)
+    path_lookup = generate_transitive_path_lookup(edge_info.path_edges)
+    reverse_lookup = edge_info.reverse_lookup
     for src, path_dict in path_lookup.items():
         if src in path_dict:
             cycle = edge_path_as_node_list(path_dict[src][0])
@@ -259,6 +200,7 @@ def print_cycles(config: Config) -> None:
 
 
 def main():
+    cli.add_command(print_edges)
     cli.add_command(print_missing_annotations)
     cli.add_command(print_dependency_graph)
     cli.add_command(print_virtual_dependency_graph)

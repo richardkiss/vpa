@@ -21,5 +21,8 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 vpa = "vpa.vpa:main"
 
+[tool.setuptools]
+package-dir = {"vpa" = "vpa"}
+
 [tool.pdm]
 distribution = true

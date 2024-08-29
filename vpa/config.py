@@ -8,5 +8,5 @@ from typing import Dict, List
 class Config:
     dir_path: Path
     ignore_cycles_in: List[str]
-    module_maps: Dict[str, str]
+    package_contents: Dict[str, str]
     excluded_paths: List[Path] = field(default_factory=list)
