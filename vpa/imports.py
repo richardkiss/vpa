@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterator, Dict, List, Optional, Tuple
+from typing import Iterator, Tuple
 
 import ast
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional
 
 import click
@@ -13,6 +12,7 @@ from .edge_info import (
     edge_info_for_config,
     generate_forward_lookup_from_reverse,
 )
+from .extract import extract
 from .graph import (
     generate_transitive_path_lookup,
     edge_path_as_node_list,
@@ -139,9 +139,8 @@ def print_edges(config: Config) -> None:
 def print_missing_annotations(config: Config) -> None:
     edge_info = edge_info_for_config(config)
     path_to_package = edge_info.path_to_package
-    mod_to_path = edge_info.mod_to_path
     missing_annotations = []
-    for mod, path in mod_to_path.items():
+    for path in edge_info.nodes:
         if path not in path_to_package:
             missing_annotations.append(path)
     print("\n".join(missing_annotations))
@@ -154,8 +153,6 @@ def print_missing_annotations(config: Config) -> None:
 @config
 def print_dependency_graph(config: Config) -> None:
     edge_info = edge_info_for_config(config)
-    mod_to_path = edge_info.mod_to_path
-    edges = edge_info.mod_edges
     dep_graph = edges_to_adjacency_list(edge_info.path_edges)
     print(json.dumps(dep_graph, indent=4))
 
@@ -199,6 +196,19 @@ def print_cycles(config: Config) -> None:
                 print(f"  {src} -> {dst} ({reverse_lookup[(src, dst)]})")
 
 
+@click.command(
+    "extract",
+    short_help="Interactive interface to extract a new package",
+)
+@click.option(
+    "--top", type=bool, is_flag=True, help="Peel nodes from tree top instead of bottom"
+)
+@click.argument("new_package_name", type=str)
+@config
+def do_extract(config: Config, new_package_name: str, top: bool) -> None:
+    extract(config, new_package_name, top)
+
+
 def main():
     cli.add_command(print_edges)
     cli.add_command(print_missing_annotations)
@@ -206,6 +216,7 @@ def main():
     cli.add_command(print_virtual_dependency_graph)
     cli.add_command(print_cycles)
     cli.add_command(print_leafs)
+    cli.add_command(do_extract)
     cli()
 
 
