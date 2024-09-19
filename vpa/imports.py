@@ -6,9 +6,12 @@ from typing import Iterator, Tuple
 import ast
 
 
-def imports_for_python_file(contents: str) -> Iterator[Tuple[str, int]]:
+def imports_for_python_file(
+    contents: str, top_level_only: bool = True
+) -> Iterator[Tuple[str, int]]:
+    node_iter = ast.iter_child_nodes if top_level_only else ast.walk
     tree = ast.parse(contents)
-    for node in ast.iter_child_nodes(tree):
+    for node in node_iter(tree):
         if isinstance(node, ast.ImportFrom):
             if node.module is not None:
                 yield node.module, node.level
@@ -34,7 +37,7 @@ def mods_imported_for_python_file(
         yield imp_to_mod(imp, current_mod, level)
 
 
-def path_to_mod(path: Path, mod_root_path: Path) -> str:
+def path_to_mod(path: Path, mod_root_path: Path = Path(".")) -> str:
     mod_path = path.relative_to(mod_root_path)
     mod_name = ".".join(mod_path.parts)
     if path.suffix == ".py":

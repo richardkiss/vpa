@@ -83,8 +83,8 @@ def process_next_potential_node(
                 target = pn
                 if pn > prior_target:
                     break
-        prior_target = target
         assert target is not None
+        prior_target = target
         md = metadata_lookup[target]
         used_by_list = used_by_lookup[target]
 

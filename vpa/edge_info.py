@@ -50,6 +50,7 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
     for node in parsed_summary.nodes:
         mod_to_path[path_to_mod(Path(node), base_dir)] = node
         md = parsed_summary.node_to_metadata.get(node)
+        assert md is not None
         if md.inline_package:
             path_to_package[node] = md.inline_package
         node_metadata[node] = Metadata(md.line_count, md.inline_package)
@@ -59,7 +60,6 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
 
     for edge in path_edges:
         src, dst = edge
-        node_metadata[dst].used_by.append(src)
     edge_info = EdgeInfo(
         nodes=parsed_summary.nodes,
         mod_edges=mod_edges,
