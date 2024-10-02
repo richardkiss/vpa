@@ -14,15 +14,12 @@ requires-python = ">=3.8"
 readme = "README.md"
 license = {text = "MIT"}
 
-[build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project.scripts]
 vpa = "vpa.vpa:main"
 
-[tool.setuptools]
-package-dir = {"vpa" = "vpa"}
+[tool.hatch.build.targets.wheel]
+packages = ["vpa"]
 
-[tool.pdm]
-distribution = true
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
