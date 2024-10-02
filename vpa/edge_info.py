@@ -8,7 +8,7 @@ from .config import Config
 from .imports import path_to_mod
 from .edge import Edge
 from .graph import remap_edges
-from .parse_summary import ParseSummary, Metadata, parse_summary_for_config
+from .parse_summary import ParseSummary, FileMetadata, build_parse_summary
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class EdgeInfo:
     path_edges: List[Edge]
     mod_edges: List[Edge]
     path_to_package: Dict[str, str]
-    node_metadata: Dict[str, Metadata]
+    node_metadata: Dict[str, FileMetadata]
 
 
 def generate_forward_lookup_from_reverse(
@@ -38,14 +38,16 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
     This method is deprecated. Use `parse_summary_for_config` instead.
     """
 
-    parsed_summary: ParseSummary = parse_summary_for_config(config)
+    parsed_summary: ParseSummary = build_parse_summary(
+        config.dir_path, config.excluded_paths, top_level_only=config.top_level_only
+    )
 
     base_dir = Path("")
     path_edges: List[Edge] = []
     mod_to_path: Dict[str, str] = {}
     path_to_package: Dict[str, str] = {}
 
-    node_metadata: Dict[str, Metadata] = dict(parsed_summary.node_to_metadata)
+    node_metadata: Dict[str, FileMetadata] = dict(parsed_summary.node_to_metadata)
 
     for node in parsed_summary.nodes:
         mod_to_path[path_to_mod(Path(node), base_dir)] = node
@@ -53,7 +55,7 @@ def edge_info_for_config(config: Config) -> EdgeInfo:
         assert md is not None
         if md.inline_package:
             path_to_package[node] = md.inline_package
-        node_metadata[node] = Metadata(md.line_count, md.inline_package)
+        node_metadata[node] = FileMetadata(md.line_count, md.inline_package)
 
     mod_to_path_rev = {v: k for k, v in mod_to_path.items()}
     mod_edges, reverse_lookup = remap_edges(parsed_summary.edges, mod_to_path_rev)

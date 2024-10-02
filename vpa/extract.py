@@ -7,7 +7,7 @@ import pprint
 from .config import Config
 from .edge import Edge
 from .graph import edges_to_adjacency_list
-from .parse_summary import Metadata, parse_summary_for_config
+from .parse_summary import FileMetadata, build_parse_summary
 
 
 TreeData = Tuple[str, List["TreeData"], List[str]]
@@ -33,7 +33,7 @@ def dump(target: str) -> None:
 def rebuild_potential_nodes(
     adj_list: Dict[str, List[str]],
     nodes_previously_rejected: Set[str],
-    metadata_lookup: Dict[str, Metadata],
+    metadata_lookup: Dict[str, FileMetadata],
     safe_targets: Set[str],
 ) -> List[str]:
     """
@@ -62,7 +62,7 @@ def process_next_potential_node(
     new_module_name: str,
     safe_targets: Set[str],
     nodes_previously_rejected: Set[str],
-    metadata_lookup: Dict[str, Metadata],
+    metadata_lookup: Dict[str, FileMetadata],
     used_by_lookup: Dict[str, List[str]],
 ) -> None:
     target = None
@@ -151,7 +151,7 @@ def process_next_potential_node(
 
 
 def extract(config: Config, new_module_name: str, top: bool) -> None:
-    parse_summary = parse_summary_for_config(config)
+    parse_summary = build_parse_summary(config.dir_path, config.excluded_paths)
     nodes = parse_summary.nodes
 
     path_edges = list(parse_summary.edges)

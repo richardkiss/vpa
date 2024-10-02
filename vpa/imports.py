@@ -7,7 +7,7 @@ import ast
 
 
 def imports_for_python_file(
-    contents: str, top_level_only: bool = True
+    contents: str, top_level_only: bool
 ) -> Iterator[Tuple[str, int]]:
     node_iter = ast.iter_child_nodes if top_level_only else ast.walk
     tree = ast.parse(contents)
@@ -30,10 +30,10 @@ def imp_to_mod(imp: str, current_mod: str, level: int) -> str:
 
 
 def mods_imported_for_python_file(
-    contents: str, base_dir: Path, filepath: Path
+    contents: str, base_dir: Path, filepath: Path, top_level_only: bool
 ) -> Iterator[str]:
     current_mod = path_to_mod(filepath, base_dir)
-    for imp, level in imports_for_python_file(contents):
+    for imp, level in imports_for_python_file(contents, top_level_only):
         yield imp_to_mod(imp, current_mod, level)
 
 

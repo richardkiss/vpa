@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TextIO
+from typing import Dict, List, Optional, Tuple
 
 import json
-import sys
 
 import click
 import yaml
@@ -17,6 +16,7 @@ from .edge_info import (
 )
 from .extract import extract
 from .graph import (
+    is_excluded,
     generate_transitive_path_lookup,
     edge_path_as_node_list,
     edges_to_adjacency_list,
@@ -53,9 +53,14 @@ def generate_dot(config: Config) -> str:
     help="Optional paths to exclude.",
 )
 @click.option(
+    "--top-level-only",
+    is_flag=True,
+    help="Parse only top level `import` statements",
+)
+@click.option(
     "--config",
     "config_path",
-    type=click.File(),
+    type=click.Path(path_type=Path),
     required=False,
     default=None,
     help="Path to the YAML configuration file.",
@@ -65,6 +70,7 @@ def cli(
     ctx: click.Context,
     include_dir: Path,
     excluded_paths: List[Path],
+    top_level_only: bool,
     config_path: Optional[Path],
 ) -> None:
     config_ignore_cycles_in: List[str] = []
@@ -84,6 +90,7 @@ def cli(
         dir_path=Path(include_dir),
         excluded_paths=[*excluded_paths, *config_excluded_paths],
         ignore_cycles_in=config_ignore_cycles_in,
+        top_level_only=top_level_only,
         package_contents=package_contents,
     )
 
@@ -172,8 +179,36 @@ def print_virtual_dependency_graph(ctx: click.Context) -> None:
     print(json.dumps(adj_list, indent=4))
 
 
+def cycle_path_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
+    cycle_path: List[Tuple[str, str]] = []
+    for idx in range(len(cycle) - 1):
+        src = cycle[idx]
+        dst = cycle[idx + 1]
+        cycle_path.append((src, dst))
+    cycle_path.append((cycle[-1], cycle[0]))
+    return cycle_path
+
+
+@cli.command("find_cycles", short_help="Output cycles found in the dependency graph")
+@click.pass_context
+def find_cycles(ctx: click.Context) -> None:
+    config = ctx.obj
+    edge_info = edge_info_for_config(config)
+    path_lookup = generate_transitive_path_lookup(edge_info.path_edges)
+    for src, path_dict in path_lookup.items():
+        if src in path_dict:
+            cycle: List[str] = edge_path_as_node_list(path_dict[src][0])
+            cycle_path = cycle_path_for_cycle(cycle)
+            print(f"cycle of length {len(cycle_path)} found from {src} ({cycle})")
+            for src, dst in cycle_path:
+                src_mod = path_to_mod(Path(src))
+                dst_mod = path_to_mod(Path(dst))
+                print(f"  {src} -> {dst} ({src_mod} -> {dst_mod})")
+
+
 @cli.command(
-    "print_cycles", short_help="Output cycles found in the virtual dependency graph"
+    "print_cycles",
+    short_help="(Legacy) output cycles found in the virtual dependency graph",
 )
 @click.option(
     "--ignore-cycles-in",
@@ -183,23 +218,78 @@ def print_virtual_dependency_graph(ctx: click.Context) -> None:
     help="Ignore dependency cycles in a package",
 )
 @click.pass_context
-def print_cycles(
-    ctx: click.Context, ignore_cycles_in: List[str], f: TextIO = sys.stdout
-) -> None:
+def print_cycles(ctx: click.Context, ignore_cycles_in: List[str]) -> None:
     config = ctx.obj
+    excluded_paths = config.excluded_paths
+    ignore_cycles_in = config.ignore_cycles_in
     edge_info = edge_info_for_config(config)
-    path_lookup = generate_transitive_path_lookup(edge_info.path_edges)
+    str_graph: Dict[str, List[str]] = edges_to_adjacency_list(edge_info.path_edges)
+    graph: Dict[Path, List[Path]] = {
+        Path(k): [Path(v) for v in vs] for k, vs in str_graph.items()
+    }
 
-    for src, path_dict in path_lookup.items():
-        if src in path_dict:
-            cycle = edge_path_as_node_list(path_dict[src][0])
-            print(f"cycle of length {len(cycle)} found from {src} ({cycle})", file=f)
-            for idx in range(len(cycle) - 1):
-                src = cycle[idx]
-                dst = cycle[idx + 1]
-                src_mod = path_to_mod(Path(src))
-                dst_mod = path_to_mod(Path(dst))
-                print(f"  {src} -> {dst} ({src_mod} -> {dst_mod})", file=f)
+    path_to_package: Dict[Path, str] = config.package_map_path(edge_info.node_metadata)
+
+    # Define a nested function for recursive dependency searching.
+    # top_level_package: The name of the package at the top of the dependency tree.
+    # left_top_level: A boolean flag indicating whether we have moved beyond the top-level package in our traversal.
+    # dependency: The current dependency path being examined.
+    # already_seen: A list of dependency paths that have already been visited to avoid infinite loops.
+    def recursive_dependency_search(
+        top_level_package: str,
+        left_top_level: bool,
+        dependency: Path,
+        already_seen: List[Path],
+    ) -> List[List[Tuple[str, Path]]]:
+        # Check if the dependency is in the list of already seen dependencies or is excluded.
+        if dependency in already_seen or is_excluded(dependency, excluded_paths):
+            return []
+
+        # Mark this dependency as seen.
+        already_seen.append(dependency)
+        # Parse the dependency file to obtain its annotations.
+        package: Optional[str] = path_to_package.get(dependency, None)
+
+        # If there are no annotations, return an empty list as there's nothing to process.
+        if package is None:
+            return []
+        # If the current dependency package matches the top-level package and we've left the top-level,
+        # return a list containing this dependency.
+        elif package == top_level_package and left_top_level:
+            return [[(package, dependency)]]
+        else:
+            # Update the left_top_level flag if we have moved to a different package.
+            left_top_level = left_top_level or package != top_level_package
+            # Recursively search through all dependencies of the current dependency and accumulate the results.
+            return [
+                [(package, dependency), *stack]
+                for stack in [
+                    _stack
+                    for dep in graph.get(dependency, [])
+                    for _stack in recursive_dependency_search(
+                        top_level_package, left_top_level, dep, already_seen
+                    )
+                ]
+            ]
+
+    # Initialize an accumulator for paths that are part of cycles.
+    path_accumulator = []
+    # Iterate over each package (parent) in the graph.
+    for parent in graph:
+        # Parse the parent package file.
+        package: Optional[str] = path_to_package.get(parent, None)
+        # Skip this package if it has no annotations or should be ignored in cycle detection.
+        if package is None or package in ignore_cycles_in:
+            continue
+        # Extend the path_accumulator with results from the recursive search starting from this parent.
+        path_accumulator.extend(recursive_dependency_search(package, False, parent, []))
+
+    # Format and return the accumulated paths as strings showing the cycles.
+    r = [
+        " -> ".join([str(d) + f" ({p})" for p, d in stack])
+        for stack in path_accumulator
+    ]
+    print("\n".join(r))
 
 
 @cli.command(
