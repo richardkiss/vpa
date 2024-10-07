@@ -15,7 +15,7 @@ readme = "README.md"
 license = {text = "MIT"}
 
 [project.scripts]
-vpa = "vpa.vpa:main"
+vpa = "vpa.vpa:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vpa"]

@@ -78,7 +78,7 @@ def cli(
     config_excluded_paths: List[Path] = []
     if config_path is not None:
         # Reading from the YAML configuration file
-        config_data = yaml.safe_load(str(config_path))
+        config_data = yaml.safe_load(config_path.read_text())
 
         # Extracting required configuration values
         config_excluded_paths = [Path(p) for p in config_data.get("excluded_paths", [])]
@@ -189,9 +189,9 @@ def cycle_path_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
     return cycle_path
 
 
-@cli.command("find_cycles", short_help="Output cycles found in the dependency graph")
+@cli.command("print_cycles", short_help="Output cycles found in the dependency graph")
 @click.pass_context
-def find_cycles(ctx: click.Context) -> None:
+def print_cycles(ctx: click.Context) -> None:
     config = ctx.obj
     edge_info = edge_info_for_config(config)
     path_lookup = generate_transitive_path_lookup(edge_info.path_edges)
@@ -207,7 +207,7 @@ def find_cycles(ctx: click.Context) -> None:
 
 
 @cli.command(
-    "print_cycles",
+    "print_cycles_legacy",
     short_help="(Legacy) output cycles found in the virtual dependency graph",
 )
 @click.option(
@@ -218,7 +218,7 @@ def find_cycles(ctx: click.Context) -> None:
     help="Ignore dependency cycles in a package",
 )
 @click.pass_context
-def print_cycles(ctx: click.Context, ignore_cycles_in: List[str]) -> None:
+def print_cycles_legacy(ctx: click.Context, ignore_cycles_in: List[str]) -> None:
     config = ctx.obj
     excluded_paths = config.excluded_paths
     ignore_cycles_in = config.ignore_cycles_in
@@ -306,9 +306,5 @@ def do_extract(ctx: click.Context, new_package_name: str, top: bool) -> None:
     extract(config, new_package_name, top)
 
 
-def main():
-    cli()
-
-
 if __name__ == "__main__":
-    main()
+    cli()

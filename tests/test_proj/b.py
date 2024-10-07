@@ -1,3 +1,6 @@
+import c
+
+
 def b():
     import a
 
