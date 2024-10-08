@@ -10,10 +10,6 @@ import yaml
 
 from .config import Config
 from .imports import path_to_mod
-from .edge_info import (
-    edge_info_for_config,
-    generate_forward_lookup_from_reverse,
-)
 from .extract import extract
 from .graph import (
     is_excluded,
@@ -24,11 +20,21 @@ from .graph import (
 )
 
 
+def generate_forward_lookup_from_reverse(
+    rlookup: Dict[str, List[str]],
+) -> Dict[str, str]:
+    d = {}
+    for k, vs in rlookup.items():
+        for v in vs:
+            d[v] = k
+    return d
+
+
 def generate_dot(config: Config) -> str:
-    edge_info = edge_info_for_config(config)
-    src_edges = {s for s, d in edge_info.path_edges}
+    parse_summary = config.build_parse_summary()
+    src_edges = {s for s, d in parse_summary.edges}
     s = "digraph G {\n"
-    for src, dst in edge_info.path_edges:
+    for src, dst in parse_summary.edges:
         if dst in src_edges:
             s += f'  "{src}" -> "{dst}";\n'
     s += "}\n"
@@ -105,10 +111,10 @@ def cli(
 @click.pass_context
 def print_leafs(ctx: click.Context, ignore_dep: List[str]) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
+    parse_summary = config.build_parse_summary()
     rev_mod_map = generate_forward_lookup_from_reverse(config.package_contents)
     reduced_edges, reverse_lookup = remap_edges(
-        edge_info.path_edges, rev_mod_map, drop_missing=False
+        parse_summary.edges, rev_mod_map, drop_missing=False
     )
 
     adj_list = edges_to_adjacency_list(reduced_edges)
@@ -131,8 +137,8 @@ def print_leafs(ctx: click.Context, ignore_dep: List[str]) -> None:
 @click.pass_context
 def print_edges(ctx: click.Context) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
-    for edge in edge_info.path_edges:
+    parse_summary = config.build_parse_summary()
+    for edge in parse_summary.edges:
         print(edge)
 
 
@@ -143,11 +149,11 @@ def print_edges(ctx: click.Context) -> None:
 @click.pass_context
 def print_missing_annotations(ctx: click.Context) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
-    path_to_package = edge_info.path_to_package
+    parse_summary = config.build_parse_summary()
     missing_annotations = []
-    for path in edge_info.nodes:
-        if path not in path_to_package:
+    for path in parse_summary.nodes:
+        md = parse_summary.node_to_metadata.get(path)
+        if md is None or md.inline_package is None:
             missing_annotations.append(path)
     print("\n".join(missing_annotations))
 
@@ -159,8 +165,8 @@ def print_missing_annotations(ctx: click.Context) -> None:
 @click.pass_context
 def print_dependency_graph(ctx: click.Context) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
-    dep_graph = edges_to_adjacency_list(edge_info.path_edges)
+    parse_summary = config.build_parse_summary()
+    dep_graph = edges_to_adjacency_list(parse_summary.edges)
     print(json.dumps(dep_graph, indent=4))
 
 
@@ -171,10 +177,9 @@ def print_dependency_graph(ctx: click.Context) -> None:
 @click.pass_context
 def print_virtual_dependency_graph(ctx: click.Context) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
-    reduced_edges, reverse_lookup = remap_edges(
-        edge_info.path_edges, edge_info.path_to_package
-    )
+    parse_summary = config.build_parse_summary()
+    path_to_package = parse_summary.path_to_package()
+    reduced_edges, reverse_lookup = remap_edges(parse_summary.edges, path_to_package)
     adj_list = edges_to_adjacency_list(reduced_edges)
     print(json.dumps(adj_list, indent=4))
 
@@ -193,8 +198,8 @@ def cycle_path_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
 @click.pass_context
 def print_cycles(ctx: click.Context) -> None:
     config = ctx.obj
-    edge_info = edge_info_for_config(config)
-    path_lookup = generate_transitive_path_lookup(edge_info.path_edges)
+    parse_summary = config.build_parse_summary()
+    path_lookup = generate_transitive_path_lookup(parse_summary.edges)
     for src, path_dict in path_lookup.items():
         if src in path_dict:
             cycle: List[str] = edge_path_as_node_list(path_dict[src][0])
@@ -222,13 +227,15 @@ def print_cycles_legacy(ctx: click.Context, ignore_cycles_in: List[str]) -> None
     config = ctx.obj
     excluded_paths = config.excluded_paths
     ignore_cycles_in = config.ignore_cycles_in
-    edge_info = edge_info_for_config(config)
-    str_graph: Dict[str, List[str]] = edges_to_adjacency_list(edge_info.path_edges)
+    parse_summary = config.build_parse_summary()
+    str_graph: Dict[str, List[str]] = edges_to_adjacency_list(parse_summary.edges)
     graph: Dict[Path, List[Path]] = {
         Path(k): [Path(v) for v in vs] for k, vs in str_graph.items()
     }
 
-    path_to_package: Dict[Path, str] = config.package_map_path(edge_info.node_metadata)
+    path_to_package: Dict[Path, str] = config.package_map_path(
+        parse_summary.node_to_metadata
+    )
 
     # Define a nested function for recursive dependency searching.
     # top_level_package: The name of the package at the top of the dependency tree.

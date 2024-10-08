@@ -35,6 +35,9 @@ class ParseSummary:
     edges: List[Edge]
     node_to_metadata: Dict[str, FileMetadata]
 
+    def path_to_package(self) -> Dict[str, str]:
+        return {k: v.inline_package for k, v in self.node_to_metadata.items()}
+
 
 def build_parse_summary(
     base_dir: Path, excluded_paths: List[Path], top_level_only: bool

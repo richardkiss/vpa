@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from .file_metadata import FileMetadata
+from .parse_summary import build_parse_summary, ParseSummary
 
 
 @dataclass
@@ -29,3 +30,8 @@ class Config:
         self, node_metadata: Dict[str, FileMetadata] = {}
     ) -> Dict[Path, str]:
         return {Path(k): v for k, v in self.package_map(node_metadata).items()}
+
+    def build_parse_summary(self) -> ParseSummary:
+        return build_parse_summary(
+            self.dir_path, self.excluded_paths, top_level_only=self.top_level_only
+        )
