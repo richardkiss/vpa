@@ -16,7 +16,7 @@ def do_test(command: str, expected_output: str):
     with runner.isolated_filesystem() as base:
         test_dir = Path(base) / "test_proj"
         shutil.copytree(TEST_DIR / "test_proj", test_dir)
-        r = runner.invoke(cli, ["--directory", test_dir, command])
+        r = runner.invoke(cli, ["--directory", str(test_dir), command])
         print(r.output)
         assert r.exit_code == 0
         assert r.output == expected_output
@@ -29,7 +29,12 @@ def test_print_cycles_legacy():
 def test_print_cycles():
     do_test(
         "print_cycles",
-        "cycle of length 2 found from a.py (['b.py', 'a.py'])\n  b.py -> a.py (b -> a)\n  a.py -> b.py (a -> b)\ncycle of length 2 found from b.py (['a.py', 'b.py'])\n  a.py -> b.py (a -> b)\n  b.py -> a.py (b -> a)\n",
+        "cycle of length 2 found: ['a.py', 'b.py']\n"
+        "cycle of length 2 found: ['b.py', 'a.py']\n"
+        "cycle count: 2\n"
+        "worst edges:\n"
+        "  2 ('b.py', 'a.py')\n"
+        "  2 ('a.py', 'b.py')\n",
     )
 
 
@@ -53,4 +58,3 @@ def test_print_dependency_graph():
     graph = {"a.py": ["b.py"], "b.py": ["a.py", "c.py"]}
     expected_output = json.dumps(graph, indent=4) + "\n"
     do_test("print_dependency_graph", expected_output)
-

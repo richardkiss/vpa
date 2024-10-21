@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -26,6 +27,8 @@ def generate_forward_lookup_from_reverse(
     d = {}
     for k, vs in rlookup.items():
         for v in vs:
+            if v in d:
+                raise ValueError(f"key {v} already in dictionary")
             d[v] = k
     return d
 
@@ -184,14 +187,14 @@ def print_virtual_dependency_graph(ctx: click.Context) -> None:
     print(json.dumps(adj_list, indent=4))
 
 
-def cycle_path_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
-    cycle_path: List[Tuple[str, str]] = []
+def edges_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
+    edges: List[Tuple[str, str]] = []
     for idx in range(len(cycle) - 1):
         src = cycle[idx]
         dst = cycle[idx + 1]
-        cycle_path.append((src, dst))
-    cycle_path.append((cycle[-1], cycle[0]))
-    return cycle_path
+        edges.append((src, dst))
+    edges.append((cycle[-1], cycle[0]))
+    return edges
 
 
 @cli.command("print_cycles", short_help="Output cycles found in the dependency graph")
@@ -199,16 +202,26 @@ def cycle_path_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
 def print_cycles(ctx: click.Context) -> None:
     config = ctx.obj
     parse_summary = config.build_parse_summary()
-    path_lookup = generate_transitive_path_lookup(parse_summary.edges)
+    rev_mod_map = generate_forward_lookup_from_reverse(config.package_contents)
+    edges, reverse_lookup = remap_edges(
+        parse_summary.edges, rev_mod_map, drop_missing=False
+    )
+    path_lookup = generate_transitive_path_lookup(edges)
+    cycle_paths = []
+    counter: Counter[tuple[str, str]] = Counter()
     for src, path_dict in path_lookup.items():
         if src in path_dict:
             cycle: List[str] = edge_path_as_node_list(path_dict[src][0])
-            cycle_path = cycle_path_for_cycle(cycle)
-            print(f"cycle of length {len(cycle_path)} found from {src} ({cycle})")
-            for src, dst in cycle_path:
-                src_mod = path_to_mod(Path(src))
-                dst_mod = path_to_mod(Path(dst))
-                print(f"  {src} -> {dst} ({src_mod} -> {dst_mod})")
+            cycle_paths.append(cycle)
+            counter.update(edges_for_cycle(cycle))
+
+    cycle_paths = sorted(cycle_paths, key=lambda x: (len(x), x))
+    for cycle_path in cycle_paths:
+        print(f"cycle of length {len(cycle_path)} found: {cycle_path}")
+    print(f"cycle count: {len(cycle_paths)}")
+    print("worst edges:")
+    for edge, count in counter.most_common(5):
+        print(f"{count:3d} {edge}")
 
 
 @cli.command(

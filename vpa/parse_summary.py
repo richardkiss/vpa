@@ -47,6 +47,7 @@ def build_parse_summary(
     node_to_metadata: Dict[str, FileMetadata] = {}
 
     mod_edges: List[Edge] = []
+    cre = re.compile(r"^# Package: (.+)$")
     for path in python_files(base_dir, excluded_paths):
         src_mod = path_to_mod(path, base_dir)
         src_path_str = str(path.relative_to(base_dir))
@@ -58,7 +59,7 @@ def build_parse_summary(
             filestring, base_dir, path, top_level_only
         ):
             mod_edges.append((src_mod, imp_mod))
-        result = re.search(r"^# Package: (.+)$", filestring, re.MULTILINE)
+        result = cre.search(filestring, re.MULTILINE)
         if result:
             inline_package = result.group(1).strip()
         node_to_metadata[src_path_str] = FileMetadata(line_count, inline_package)
