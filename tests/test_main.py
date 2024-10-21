@@ -30,11 +30,10 @@ def test_print_cycles():
     do_test(
         "print_cycles",
         "cycle of length 2 found: ['a.py', 'b.py']\n"
-        "cycle of length 2 found: ['b.py', 'a.py']\n"
-        "cycle count: 2\n"
+        "cycle count: 1\n"
         "worst edges:\n"
-        "  2 ('b.py', 'a.py')\n"
-        "  2 ('a.py', 'b.py')\n",
+        "  1 ('a.py', 'b.py')\n"
+        "  1 ('b.py', 'a.py')\n",
     )
 
 

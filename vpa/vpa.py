@@ -10,7 +10,6 @@ import click
 import yaml
 
 from .config import Config
-from .imports import path_to_mod
 from .extract import extract
 from .graph import (
     is_excluded,
@@ -207,17 +206,20 @@ def print_cycles(ctx: click.Context) -> None:
         parse_summary.edges, rev_mod_map, drop_missing=False
     )
     path_lookup = generate_transitive_path_lookup(edges)
-    cycle_paths = []
-    counter: Counter[tuple[str, str]] = Counter()
+    cycle_paths: set[tuple[str, ...]] = set()
     for src, path_dict in path_lookup.items():
         if src in path_dict:
             cycle: List[str] = edge_path_as_node_list(path_dict[src][0])
-            cycle_paths.append(cycle)
-            counter.update(edges_for_cycle(cycle))
+            cycle.sort()
+            cycle_paths.add(tuple(cycle))
+    counter: Counter[tuple[str, str]] = Counter()
+    for cycle_tuple in cycle_paths:
+        cycle = list(cycle_tuple)
+        counter.update(edges_for_cycle(cycle))
 
-    cycle_paths = sorted(cycle_paths, key=lambda x: (len(x), x))
-    for cycle_path in cycle_paths:
-        print(f"cycle of length {len(cycle_path)} found: {cycle_path}")
+    cycle_paths_list = sorted(cycle_paths, key=lambda x: (len(x), x))
+    for cycle_path in cycle_paths_list:
+        print(f"cycle of length {len(cycle_path)} found: {list(cycle_path)}")
     print(f"cycle count: {len(cycle_paths)}")
     print("worst edges:")
     for edge, count in counter.most_common(5):
