@@ -10,6 +10,7 @@ import click
 import yaml
 
 from .config import Config
+from .edge import Edge
 from .extract import extract
 from .graph import (
     is_excluded,
@@ -196,9 +197,27 @@ def edges_for_cycle(cycle: List[str]) -> List[Tuple[str, str]]:
     return edges
 
 
+def canonicalize_cycle(cycle: List[str]) -> List[str]:
+    idx = min(range(len(cycle)), key=lambda x: cycle[x])
+    return cycle[idx:] + cycle[:idx]
+
+
 @cli.command("print_cycles", short_help="Output cycles found in the dependency graph")
+@click.option(
+    "-w",
+    "--worst-edge-count",
+    type=int,
+    default=5,
+    help="Number of `worst edges` to print",
+)
+@click.option(
+    "-p",
+    "--print-reps",
+    is_flag=True,
+    help="Print file-level edges represented by package-level edges",
+)
 @click.pass_context
-def print_cycles(ctx: click.Context) -> None:
+def print_cycles(ctx: click.Context, worst_edge_count: int, print_reps: bool) -> None:
     config = ctx.obj
     parse_summary = config.build_parse_summary()
     rev_mod_map = generate_forward_lookup_from_reverse(config.package_contents)
@@ -210,7 +229,7 @@ def print_cycles(ctx: click.Context) -> None:
     for src, path_dict in path_lookup.items():
         if src in path_dict:
             cycle: List[str] = edge_path_as_node_list(path_dict[src][0])
-            cycle.sort()
+            cycle = canonicalize_cycle(cycle)
             cycle_paths.add(tuple(cycle))
     counter: Counter[tuple[str, str]] = Counter()
     for cycle_tuple in cycle_paths:
@@ -221,9 +240,24 @@ def print_cycles(ctx: click.Context) -> None:
     for cycle_path in cycle_paths_list:
         print(f"cycle of length {len(cycle_path)} found: {list(cycle_path)}")
     print(f"cycle count: {len(cycle_paths)}")
-    print("worst edges:")
-    for edge, count in counter.most_common(5):
-        print(f"{count:3d} {edge}")
+    if worst_edge_count > 0:
+        print("worst edges:")
+        for edge, count in sorted(
+            counter.most_common(worst_edge_count), key=lambda x: (-x[1], x[0])
+        ):
+            print(f"{count:3d} {edge}")
+    reps: dict[Edge, list[Edge]] = {}
+    for edge in counter.keys():
+        if edge in reverse_lookup:
+            reps[edge] = reverse_lookup[edge]
+    if print_reps:
+        print("edge representatives:")
+        for edge, rep in sorted(reps.items()):
+            if len(rep) == 1 and rep[0] == edge:
+                continue
+            print(f" {edge}:")
+            for r in rep:
+                print(f"   {r}")
 
 
 @cli.command(
