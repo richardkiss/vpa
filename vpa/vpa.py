@@ -202,6 +202,25 @@ def canonicalize_cycle(cycle: List[str]) -> List[str]:
     return cycle[idx:] + cycle[:idx]
 
 
+@cli.command(
+    "dump_inline_packages",
+    short_help="Dump inline package annotations ready for use with .yaml files",
+)
+@click.pass_context
+def dump_inline_packages(ctx: click.Context) -> None:
+    config = ctx.obj
+    parse_summary = config.build_parse_summary()
+    path_to_package: dict[str, str] = parse_summary.path_to_package()
+    inline_summary: dict[str, list[str]] = {}
+    for path, package in path_to_package.items():
+        if package is None:
+            continue
+        if package not in inline_summary:
+            inline_summary[package] = []
+        inline_summary[package].append(path)
+    print(json.dumps(inline_summary, indent=4))
+
+
 @cli.command("print_cycles", short_help="Output cycles found in the dependency graph")
 @click.option(
     "-w",
