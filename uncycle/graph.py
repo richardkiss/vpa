@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
-from vpa.edge import Edge
+from uncycle.edge import Edge
 
 
 EdgePath = None | Tuple[str, "EdgePath"]

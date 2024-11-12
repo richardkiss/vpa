@@ -5,7 +5,7 @@ import shutil
 
 from click.testing import CliRunner
 
-from vpa.vpa import cli
+from uncycle.main import cli
 
 TEST_DIR = Path(__file__).parent
 print(TEST_DIR)

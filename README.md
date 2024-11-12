@@ -1,6 +1,6 @@
-# Virtual Package Analysis (vpa)
+# Uncycle
 
-Virtual Package Analysis (vpa) is a Python tool designed to analyze and reorganize Python projects by generating a graph of imports and assisting in the refactoring process. It helps in identifying and minimizing cross-dependencies, making it easier to split large projects into smaller, more manageable modules or packages.
+Uncycle is a Python tool designed to analyze and reorganize Python projects by generating a graph of imports and assisting in the refactoring process. It helps in identifying and minimizing cross-dependencies, making it easier to split large projects into smaller, more manageable modules or packages.
 
 ## Features
 
@@ -10,7 +10,7 @@ Virtual Package Analysis (vpa) is a Python tool designed to analyze and reorgani
 - **Bottom-up or Top-down Approach**: Allows refactoring from either the bottom (default) or the top of the dependency graph.
 - **YAML Configuration**: Supports configuration via YAML files for excluding paths and defining package contents.
 
-## Why Use vpa?
+## Why Use uncycle?
 
 Sometimes, projects grow too large and contain a mix of code at various levels, making them difficult to maintain. Because Python does not allow circular dependencies, the import graph provides hints about which source files are high-level and which are low-level. This tool imports the graph and allows you to extract files from either the bottom (default) or the top, facilitating their refactoring into new, independent packages.
 
@@ -20,20 +20,20 @@ Sometimes, projects grow too large and contain a mix of code at various levels, 
 
 ## Usage
 
-To use vpa, follow these steps:
+To use uncycle, follow these steps:
 
 1. Navigate to your project directory.
 2. (Optional) Create a YAML configuration file (see Configuration section below).
-3. Run the vpa command with the desired options:
+3. Run the uncycle command with the desired options:
 
 ```
-vpa extract --directory <target_directory> <source_directory> [--config <config_file.yaml>]
+uncycle extract --directory <target_directory> <source_directory> [--config <config_file.yaml>]
 ```
 
 For example:
 
 ```
-vpa extract --directory projects/chia chia_core --config vpa_config.yaml
+uncycle extract --directory projects/chia chia_core --config uncycle_config.yaml
 ```
 
 4. The tool will present an interactive interface, allowing you to:
@@ -80,11 +80,11 @@ Note: Existing packages are considered okay to import, as the tool is designed t
 
 ## Output
 
-After running vpa, it will produce a summary output of the files you selected to move (either interactively or via the configuration file). This output can be used to guide your refactoring process.
+After running uncycle, it will produce a summary output of the files you selected to move (either interactively or via the configuration file). This output can be used to guide your refactoring process.
 
 ## Example Interaction
 
-Here's a snippet of what interacting with vpa looks like:
+Here's a snippet of what interacting with uncycle looks like:
 
 ```
 -------

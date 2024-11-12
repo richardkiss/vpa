@@ -1,9 +1,10 @@
 [project]
-name = "vpa"
+name = "uncycle"
 version = "0.1.0"
-description = "Virtual Package Analysis"
+description = "Tool to help unravel cyclic dependencies through virtual packages"
 authors = [
     {name = "Matt Hauff", email = "quexington@gmail.com"},
+    {name = "Richard Kiss", email = "him@richardkiss.com"},
 ]
 dependencies = [
     "click==8.1.7",
@@ -15,10 +16,10 @@ readme = "README.md"
 license = {text = "MIT"}
 
 [project.scripts]
-vpa = "vpa.vpa:cli"
+uncycle = "uncycle.main:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["vpa"]
+packages = ["uncycle"]
 
 [build-system]
 requires = ["hatchling"]
